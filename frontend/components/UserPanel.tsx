@@ -3,11 +3,18 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, logout, type User } from "@/lib/api";
+import { useResetOnHide } from "@/lib/useResetOnHide";
 
 export default function UserPanel() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [pending, setPending] = useState(false);
+
+  // Also drop the user so a different account never sees the old name.
+  useResetOnHide(() => {
+    setPending(false);
+    setUser(null);
+  });
 
   useEffect(() => {
     apiFetch<User>("/api/auth/me").then(setUser).catch(() => {});

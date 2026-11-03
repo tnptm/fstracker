@@ -94,6 +94,9 @@ Frontend pieces:
   enabled). Read `frontend/AGENTS.md` and the bundled docs in `frontend/node_modules/next/dist/docs/`
   before writing frontend code.
 - Client components that use `useSearchParams` must be wrapped in `<Suspense>` (needed with Cache Components).
+- With Cache Components, visited pages stay mounted but hidden (`<Activity>`), so their state and DOM
+  survive navigation. Reset transient state (`pending` flags, errors, password inputs) with
+  `useResetOnHide` from `frontend/lib/useResetOnHide.ts`.
 - Data models reference users via `'auth.User'` FKs. Scope every query to `request.user`.
 - New backend features go in `tracker` (domain) or `accounts` (auth/users). Add tests in the app's `tests.py`,
   using `APIClient(enforce_csrf_checks=True)` to exercise the real cookie and CSRF flow. Call `cache.clear()`

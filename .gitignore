@@ -11,3 +11,4 @@ wheels/
 backend/.env
 .env.*
 .env
+backend/db.sqlite3

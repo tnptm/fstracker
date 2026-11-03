@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, login } from "@/lib/api";
+import { useResetOnHide } from "@/lib/useResetOnHide";
 
 // Only allow same-site relative redirects after login.
 function safeNext(next: string | null): string {
@@ -14,6 +15,15 @@ export default function LoginForm() {
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Clear state and typed credentials when the page is hidden (e.g. after
+  // login), so the form is fresh when the user returns after logging out.
+  useResetOnHide(() => {
+    setPending(false);
+    setError(null);
+    formRef.current?.reset();
+  });
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -38,7 +48,7 @@ export default function LoginForm() {
     "w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white";
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+    <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-4">
       <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
         Username
         <input name="username" autoComplete="username" required className={input} />

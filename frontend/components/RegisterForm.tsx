@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, register } from "@/lib/api";
+import { useResetOnHide } from "@/lib/useResetOnHide";
 
 type FieldErrors = Record<string, string[]>;
 
@@ -30,6 +31,13 @@ export default function RegisterForm() {
   const router = useRouter();
   const [errors, setErrors] = useState<FieldErrors>({});
   const [pending, setPending] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useResetOnHide(() => {
+    setPending(false);
+    setErrors({});
+    formRef.current?.reset();
+  });
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -65,7 +73,7 @@ export default function RegisterForm() {
     ));
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+    <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
       <label className={label}>
         Username
         <input name="username" autoComplete="username" required maxLength={150} className={input} />
