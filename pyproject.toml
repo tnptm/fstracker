@@ -1,0 +1,21 @@
+[project]
+name = "fstracker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Toni Patama", email = "tonipat047@gmail.com" }
+]
+requires-python = ">=3.15"
+dependencies = [
+    "django>=6.1.2",
+    "django-cors-headers>=4.9.0",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+fstracker = "fstracker:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
