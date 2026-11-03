@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 import os
 
+from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -42,6 +43,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',
+    'accounts',
+    'tracker',
 ]
 
 MIDDLEWARE = [
@@ -54,7 +59,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'backend.urls'
+ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
     {
@@ -71,7 +76,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'backend.wsgi.application'
+WSGI_APPLICATION = 'config.wsgi.application'
 
 
 # Database
@@ -130,3 +135,48 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Django REST framework
+# Auth uses JWTs stored in HTTP-only cookies (see accounts/authentication.py).
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'accounts.authentication.CookieJWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'register': os.getenv('DJANGO_THROTTLE_REGISTER', '5/hour'),
+        'register_global': os.getenv('DJANGO_THROTTLE_REGISTER_GLOBAL', '100/hour'),
+    },
+    # Number of trusted reverse proxies in front of Django. Used to pick the
+    # client IP from X-Forwarded-For for rate limiting. Set this to match your
+    # deployment; clients can spoof the header if it's higher than reality.
+    'NUM_PROXIES': int(os.getenv('DJANGO_NUM_PROXIES', '0')),
+}
+
+# Session length: the refresh token lives 30 days and is rotated on every
+# refresh, so the session only expires after 30 days of inactivity.
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+
+AUTH_COOKIE_ACCESS = 'access_token'
+AUTH_COOKIE_REFRESH = 'refresh_token'
+AUTH_COOKIE_SECURE = not DEBUG
+AUTH_COOKIE_SAMESITE = 'Lax'
+# Path '/' so the Next.js proxy can see the refresh cookie on page requests
+# (optimistic redirect to /login when it's missing).
+AUTH_COOKIE_REFRESH_PATH = '/'
+
+# The frontend reads the CSRF cookie and sends it back in the X-CSRFToken header.
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_TRUSTED_ORIGINS = [
+    o for o in os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', 'http://localhost:3000,http://localhost:3001').split(',') if o
+]
