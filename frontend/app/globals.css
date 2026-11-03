@@ -1,26 +1,75 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Dark mode follows the data-theme attribute set by the theme script / toggle. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  color-scheme: light;
+  /* Chart tokens (validated for contrast/lightness on the card surface). */
+  --chart-series: #0d9488;
+  --chart-goal: #52514e;
+  --chart-grid: #e4e4e7;
+  --chart-axis: #a1a1aa;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  scrollbar-color: #3f3f46 transparent;
+  --chart-series: #11a192;
+  --chart-goal: #c3c2b7;
+  --chart-grid: #27272a;
+  --chart-axis: #52525b;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  @apply bg-zinc-50 font-sans text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl bg-white p-5 shadow-sm ring-1 ring-zinc-900/5 dark:bg-zinc-900 dark:ring-white/10;
+  }
+  .card-title {
+    @apply text-base font-semibold tracking-tight text-zinc-900 dark:text-white;
+  }
+  .muted {
+    @apply text-sm text-zinc-500 dark:text-zinc-400;
+  }
+  .btn {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition select-none active:scale-[.98] disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500;
+  }
+  .btn-primary {
+    @apply bg-teal-600 text-white shadow-sm shadow-teal-600/20 hover:bg-teal-700 dark:bg-teal-500 dark:text-zinc-950 dark:hover:bg-teal-400;
+  }
+  .btn-secondary {
+    @apply bg-zinc-100 text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700;
+  }
+  .btn-danger {
+    @apply bg-rose-600 text-white hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-400;
+  }
+  .btn-ghost {
+    @apply text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800;
+  }
+  .icon-btn {
+    @apply inline-flex size-10 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-teal-500 dark:text-zinc-300 dark:hover:bg-zinc-800;
+  }
+  .field {
+    @apply flex flex-col gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300;
+  }
+  /* text-base (16px) keeps iOS Safari from zooming into focused inputs. */
+  .input {
+    @apply min-h-11 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-3.5 py-2 text-base font-normal text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/15 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-white dark:focus:bg-zinc-800;
+  }
+  .alert-error {
+    @apply rounded-2xl bg-rose-50 px-3.5 py-2.5 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300;
+  }
+  .alert-success {
+    @apply rounded-2xl bg-teal-50 px-3.5 py-2.5 text-sm text-teal-800 dark:bg-teal-500/10 dark:text-teal-200;
+  }
 }

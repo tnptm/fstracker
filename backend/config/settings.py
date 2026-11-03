@@ -114,7 +114,8 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# Used for day/month boundaries in filters and stats.
+TIME_ZONE = os.getenv('DJANGO_TIME_ZONE', 'Europe/Helsinki')
 
 USE_I18N = True
 

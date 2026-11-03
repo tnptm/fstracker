@@ -5,8 +5,9 @@ Tracks voluntary (volunteer) work hours. Monorepo with two apps:
 - `backend/` — Django 6 + Django REST Framework API (Python 3.15, managed with **uv** from the repo root).
 - `frontend/` — Next.js 16 (App Router, React 19, Tailwind 4, TypeScript).
 
-Status: only authentication (register / login / logout / session refresh) is implemented. The
-`tracker` app has models (`Tracker`, `MontlyCourses`, `MonthlyHourGoal`) but no API yet.
+Features: auth (register / login / logout / 30-day session), a start/stop timer and manual time entries
+with comments, whole-day notes (day off, sick…), monthly course counts, monthly hour goals, an editable
+history and monthly stats. The UI is mobile-first with light/dark themes.
 
 ## Commands
 
@@ -35,6 +36,7 @@ Node comes from nvm (`~/.nvm/versions/node/...`). Non-interactive shells may nee
 - `DJANGO_CSRF_TRUSTED_ORIGINS`: comma-separated frontend origins (default `http://localhost:3000,http://localhost:3001`)
 - `DJANGO_THROTTLE_REGISTER` (default `5/hour` per IP), `DJANGO_THROTTLE_REGISTER_GLOBAL` (default `100/hour` site-wide)
 - `DJANGO_NUM_PROXIES` (default `0`): trusted proxies that append to `X-Forwarded-For`. See "Rate limiting & client IP".
+- `DJANGO_TIME_ZONE` (default `Europe/Helsinki`): defines day/month boundaries for API filters and stats.
 
 Frontend env: `BACKEND_URL`, the Django origin that `/api/*` is proxied to (default `http://127.0.0.1:8002`).
 
@@ -84,9 +86,53 @@ Frontend pieces:
 - `frontend/proxy.ts`: Next 16's replacement for `middleware.ts`. It does an *optimistic* check (only
   whether the `refresh_token` cookie exists) to redirect between `/login` and protected pages. Real
   authorization always happens in Django.
-- `frontend/app/login/page.tsx` + `components/LoginForm.tsx`, `frontend/app/register/page.tsx` +
-  `components/RegisterForm.tsx`, `components/UserPanel.tsx` (user + logout). Public (no-session) pages are
-  listed in `PUBLIC_PATHS` in `proxy.ts`.
+- `app/(auth)/` holds the login and register pages (`components/LoginForm.tsx`, `RegisterForm.tsx`).
+  `components/UserMenu.tsx` handles logout and clears the SWR cache. Public (no-session) pages are listed
+  in `PUBLIC_PATHS` in `proxy.ts`.
+
+## Architecture: tracker (`backend/tracker`)
+
+Models: `Tracker` (a time entry; `end_time` is null while the timer runs), `MonthlyCourses`,
+`MonthlyHourGoal` (both have one row per user and month, `month` is the 1st day), and `DailyComment`
+(one note per user and day, `kind` = day_off/sick/vacation/other).
+
+DB constraints: `end_time > start_time`, **at most one running entry per user**, and the unique
+per-month/per-day rows. The serializer also rejects overlapping entries (a running entry counts as
+ending now) and times in the future.
+
+API (mounted at `/api/`, every query scoped to `request.user`; other users' objects return 404):
+
+- `entries/`: CRUD. Filters `?month=YYYY-MM`, `?from=&to=` (dates, inclusive), `?limit=N`.
+  Actions: `entries/current/` (GET, the running entry or null), `entries/start/` and `entries/stop/`
+  (POST, optional `description`; return 409 if already running / not running). A manual create requires
+  `end_time`.
+- `daily-comments/`: CRUD, `?month=YYYY-MM`.
+- `goals/` and `courses/`: addressed by month, e.g. `PUT /api/goals/2026-11/` upserts. `?year=YYYY` on list.
+- `stats/?year=YYYY`: `current` (this month: seconds, goal, expected-by-today pace, remaining, today) and
+  `year` (12 months of seconds/goal/courses/day notes). Durations are in **seconds**. An entry counts
+  toward the day/month it starts in.
+
+## Architecture: frontend app (`frontend/app/(app)`)
+
+- Pages: Home `/`, History `/history`, Track `/track`, Stats `/stats`. Each `page.tsx` renders a view from
+  `components/views/` inside `<ClientOnly>`: views use "now" and the browser time zone, which can't be
+  prerendered (Next errors on `new Date()` during prerender).
+- Layout: header nav on `md+`; on phones a fixed bottom tab bar (`components/NavLinks.tsx`) with
+  safe-area padding (`viewportFit: "cover"`). `<main>` has bottom padding so content clears the bar.
+- Data: SWR (`components/Providers.tsx`) with `apiFetch` as fetcher. SWR keys are API paths (see `keys`
+  in `lib/tracker.ts`). Mutations go through `lib/tracker.ts` helpers, which call `refreshTrackerData()`
+  to revalidate all tracker keys, so Home, History and Stats stay consistent.
+- Dates: shown in browser local time via `lib/format.ts` (en-GB, 24 h). Edits send ISO/UTC.
+- Theme: the user's choice (system/light/dark) is stored in `localStorage.theme` and applied as
+  `<html data-theme>` by an inline head script (`lib/theme-script.ts`) before first paint.
+  `useTheme()` is in `lib/theme.ts`. Tailwind's `dark:` variant is bound to `data-theme` in `globals.css`.
+- Styling: shared classes in `globals.css` (`card`, `btn btn-primary|secondary|ghost|danger`, `input`,
+  `field`, `alert-*`, `icon-btn`). Inputs are 16px so iOS doesn't zoom on focus. Accent is teal.
+- Chart (`components/MonthlyChart.tsx`): single series in `--chart-series`. Its light/dark values were
+  validated for contrast/lightness against the card surfaces, so re-validate if you change them. Goals
+  are a tick per month; each column is a focusable button with a tooltip. The Stats table is the
+  accessible view of the same data.
+- Edit dialogs use native `<dialog>` (`components/ui.tsx` `Modal`): a bottom sheet on phones.
 
 ## Conventions
 
@@ -97,7 +143,9 @@ Frontend pieces:
 - With Cache Components, visited pages stay mounted but hidden (`<Activity>`), so their state and DOM
   survive navigation. Reset transient state (`pending` flags, errors, password inputs) with
   `useResetOnHide` from `frontend/lib/useResetOnHide.ts`.
-- Data models reference users via `'auth.User'` FKs. Scope every query to `request.user`.
+- Data models reference users via `settings.AUTH_USER_MODEL`. Scope every query to `request.user`
+  (`UserOwnedMixin` in `tracker/views.py`) and assign `user` server-side in `perform_create`.
+- Avoid `<input type="month">` (missing in Firefox). Use the `Switcher` component from `components/ui.tsx`.
 - New backend features go in `tracker` (domain) or `accounts` (auth/users). Add tests in the app's `tests.py`,
   using `APIClient(enforce_csrf_checks=True)` to exercise the real cookie and CSRF flow. Call `cache.clear()`
   in `setUp` for throttled endpoints.
