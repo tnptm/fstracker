@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://127.0.0.1:8002";
 
 const nextConfig: NextConfig = {
+  // Self-contained server in .next/standalone for the production Docker image.
+  output: "standalone",
   // Proxy /api/* to Django so the browser only talks to this origin and the
   // auth cookies are first-party. Django expects trailing slashes; the
   // frontend calls paths without them and the rewrite adds the slash.

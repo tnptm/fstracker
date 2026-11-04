@@ -10,6 +10,8 @@ wheels/
 .venv
 backend/.env
 .env.*
+# Keep the committed templates
+!.env*.example
 .env
 backend/db.sqlite3
 vapaaehtois*
