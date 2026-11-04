@@ -1,0 +1,49 @@
+# Development stack: hot reload for both apps, SQLite by default (same as running
+# without Docker). Production lives in compose.prod.yaml.
+#
+#   docker compose up --build
+#   backend:  http://localhost:8002     frontend: http://localhost:3001
+#
+# Settings come from backend/.env (gitignored) and can be overridden in your shell.
+# To develop against PostgreSQL instead of SQLite, add the POSTGRES_* variables
+# (see compose.prod.yaml) to backend/.env and point POSTGRES_HOST at a database.
+name: fstracker
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: dev
+    # No env_file: backend/.env is bind-mounted with the source and read by python-dotenv.
+    # (compose would interpolate `$` inside values such as DJANGO_SECRET_KEY.)
+    environment:
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
+      # `backend` is the Host header the Next.js proxy sends inside the compose network.
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:3000,http://localhost:3001}
+    volumes:
+      - ./backend:/app/backend
+    ports:
+      - "8002:8000"
+
+  frontend:
+    build:
+      context: frontend
+      target: dev
+    environment:
+      BACKEND_URL: http://backend:8000
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./frontend:/app
+      # Keep the container's node_modules (don't shadow them with the host's).
+      - frontend_node_modules:/app/node_modules
+      - frontend_next_cache:/app/.next
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+
+volumes:
+  frontend_node_modules:
+  frontend_next_cache:

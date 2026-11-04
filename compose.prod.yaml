@@ -1,0 +1,116 @@
+# Production stack for a small VPS (1 vCPU, <= 2 GB RAM): PostgreSQL 18 + Django/gunicorn
+# + Next.js. The containers only listen on 127.0.0.1; the host's nginx terminates TLS
+# for fs.tnptm.top and proxies to them (deploy/nginx/fs.tnptm.top.conf).
+#
+#   cp .env.prod.example .env.prod      # then fill in the secrets
+#   docker compose --env-file .env.prod -f compose.prod.yaml up -d --build
+#
+# Memory budget (limits below): postgres 384M + backend 384M + frontend 320M ~= 1.1 GB,
+# leaving room for the OS and nginx on a 2 GB box.
+name: fstracker-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fstracker}
+      POSTGRES_USER: ${POSTGRES_USER:-fstracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.prod}
+    # Tuned for ~384 MB: small shared buffers, few connections (gunicorn needs ~8).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=25
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - max_wal_size=512MB
+      - -c
+      - log_min_duration_statement=1000
+    volumes:
+      # PostgreSQL 18+ images keep data in a versioned subdirectory, so mount the parent.
+      - pgdata:/var/lib/postgresql
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 384m
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: prod
+    restart: unless-stopped
+    environment:
+      DJANGO_DEBUG: "False"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env.prod}
+      # `backend` is the Host header the Next.js proxy sends inside the compose network.
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN:-fs.tnptm.top},backend,localhost,127.0.0.1
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMAIN:-fs.tnptm.top}
+      DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-Europe/Helsinki}
+      # nginx is the only proxy that sets X-Forwarded-For (it overwrites it), see CLAUDE.md.
+      DJANGO_NUM_PROXIES: "1"
+      DJANGO_THROTTLE_REGISTER: ${DJANGO_THROTTLE_REGISTER:-5/hour}
+      DJANGO_THROTTLE_REGISTER_GLOBAL: ${DJANGO_THROTTLE_REGISTER_GLOBAL:-100/hour}
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-fstracker}
+      POSTGRES_USER: ${POSTGRES_USER:-fstracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Gunicorn tuning: defaults in backend/gunicorn.conf.py (2 workers x 4 threads).
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Only nginx on the host needs this (for /admin/ and /static/).
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 384m
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  frontend:
+    build:
+      context: frontend
+      target: prod
+      args:
+        # Baked into the build: where Next proxies /api/*.
+        BACKEND_URL: http://backend:8000
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    mem_limit: 320m
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+volumes:
+  pgdata:
