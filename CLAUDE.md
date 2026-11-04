@@ -28,11 +28,24 @@ npm run build
 
 Node comes from nvm (`~/.nvm/versions/node/...`). Non-interactive shells may need it put on `PATH`.
 
+Docker (optional for development, used for production):
+
+```bash
+docker compose up --build                  # dev: hot reload, SQLite; backend :8002, frontend :3001
+docker compose --env-file .env.prod -f compose.prod.yaml up -d --build   # production stack
+```
+
+See `deploy/README.md` for the production runbook (first deploy, updates, backups, resource notes).
+
 ## Configuration
 
 `backend/.env` (gitignored, loaded by python-dotenv):
 
-- `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`
+- `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`. With `DJANGO_DEBUG` off the app **refuses to
+  start without a secret key** and turns on secure cookies, `X-Forwarded-Proto` handling and WhiteNoise
+  hashed static files.
+- `POSTGRES_HOST` (+ `POSTGRES_PORT/DB/USER/PASSWORD`): when set, Django uses PostgreSQL; otherwise SQLite
+  (development default). Production always sets it (compose.prod.yaml).
 - `DJANGO_CSRF_TRUSTED_ORIGINS`: comma-separated frontend origins (default `http://localhost:3000,http://localhost:3001`)
 - `DJANGO_THROTTLE_REGISTER` (default `5/hour` per IP), `DJANGO_THROTTLE_REGISTER_GLOBAL` (default `100/hour` site-wide)
 - `DJANGO_NUM_PROXIES` (default `0`): trusted proxies that append to `X-Forwarded-For`. See "Rate limiting & client IP".
@@ -133,6 +146,29 @@ API (mounted at `/api/`, every query scoped to `request.user`; other users' obje
   are a tick per month; each column is a focusable button with a tooltip. The Stats table is the
   accessible view of the same data.
 - Edit dialogs use native `<dialog>` (`components/ui.tsx` `Modal`): a bottom sheet on phones.
+
+## Architecture: Docker & production
+
+- `compose.yaml` (dev): `backend` (runserver) and `frontend` (`next dev`) with the source bind-mounted. Same
+  settings as running locally: SQLite in `backend/db.sqlite3`, `backend/.env` read by python-dotenv (no
+  `env_file`, because compose would interpolate `$` inside the secret key).
+- `compose.prod.yaml` (prod, project `fstracker-prod`): `db` (PostgreSQL **18**, data in the named volume
+  `pgdata` mounted at `/var/lib/postgresql`, which is where 18+ images expect it), `backend` (gunicorn),
+  `frontend` (Next standalone). Ports are published on `127.0.0.1` only; the host's nginx
+  (`deploy/nginx/fs.tnptm.top.conf`) is the public entry. Secrets come from `.env.prod` (template:
+  `.env.prod.example`; the `!.env*.example` rule in `.gitignore` keeps the template committable).
+- Images: `backend/Dockerfile` has build context = **repo root** (it needs `pyproject.toml` and `uv.lock`),
+  targets `dev` and `prod` (non-root, `collectstatic` at build time, health check on `/api/health/`).
+  `frontend/Dockerfile` has context `frontend/`. `BACKEND_URL` is a **build arg** for the prod frontend, since
+  `next.config.ts` bakes the rewrite target into the build (`output: "standalone"`).
+- Django receives `Host: backend` from the Next proxy, so `backend` is in the prod `ALLOWED_HOSTS`.
+- Gunicorn for 1 vCPU / <= 2 GB: `backend/gunicorn.conf.py` (2 workers x 4 threads, `gthread`, `preload_app`,
+  `max_requests` recycling, control socket disabled), started by `backend/scripts/start-prod.sh`
+  (`migrate`, then gunicorn). Tune with `GUNICORN_WORKERS` / `GUNICORN_THREADS`. Containers have memory
+  limits (db 384M, backend 384M, frontend 320M); PostgreSQL is tuned to match (see `compose.prod.yaml`).
+- nginx **overwrites** `X-Forwarded-For` with the real client IP and the backend runs with
+  `DJANGO_NUM_PROXIES=1` (see "Rate limiting & client IP"). nginx also rate-limits login/register/refresh.
+- Backups: `deploy/backup-db.sh` (compressed `pg_dump`, keeps the newest N). Never run `down -v` in production.
 
 ## Conventions
 

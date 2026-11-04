@@ -1,0 +1,13 @@
+# Backend build context is the repo root; keep it small and secret-free.
+.git
+.venv
+**/__pycache__
+**/*.py[oc]
+**/.env
+**/.env.*
+!**/.env.*.example
+backend/db.sqlite3
+backend/staticfiles
+frontend
+vapaaehtois*
+*.zip
