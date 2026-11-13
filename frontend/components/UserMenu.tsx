@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR, { mutate } from "swr";
 import { logout, type User } from "@/lib/api";
 import { useResetOnHide } from "@/lib/useResetOnHide";
-import { LogOutIcon } from "./icons";
+import { LogOutIcon, UserIcon } from "./icons";
 
 export default function UserMenu() {
   const router = useRouter();
@@ -30,6 +31,9 @@ export default function UserMenu() {
           {user.username}
         </span>
       )}
+      <Link href="/account" className="icon-btn" aria-label="Account and privacy" title="Account and privacy">
+        <UserIcon />
+      </Link>
       <button
         type="button"
         onClick={onLogout}

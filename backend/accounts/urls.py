@@ -9,4 +9,6 @@ urlpatterns = [
     path('refresh/', views.RefreshView.as_view(), name='auth-refresh'),
     path('logout/', views.LogoutView.as_view(), name='auth-logout'),
     path('me/', views.MeView.as_view(), name='auth-me'),
+    path('privacy/accept/', views.AcceptPrivacyView.as_view(), name='auth-privacy-accept'),
+    path('me/export/', views.ExportView.as_view(), name='auth-export'),
 ]

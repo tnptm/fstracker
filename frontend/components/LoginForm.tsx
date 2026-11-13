@@ -49,7 +49,15 @@ export default function LoginForm() {
     <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-4">
       <label className="field">
         Username
-        <input name="username" autoComplete="username" required className="input" />
+        <input
+          name="username"
+          autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+          className="input"
+        />
       </label>
       <label className="field">
         Password

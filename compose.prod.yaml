@@ -73,15 +73,18 @@ services:
       DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-Europe/Helsinki}
       # nginx is the only proxy that sets X-Forwarded-For (it overwrites it), see CLAUDE.md.
       DJANGO_NUM_PROXIES: "1"
+      # Accounts unused this long are deleted by `manage.py enforce_retention` (docs/DATA_HANDLING.md).
+      DJANGO_INACTIVE_ACCOUNT_MONTHS: ${DJANGO_INACTIVE_ACCOUNT_MONTHS:-24}
       DJANGO_THROTTLE_REGISTER: ${DJANGO_THROTTLE_REGISTER:-5/hour}
       DJANGO_THROTTLE_REGISTER_GLOBAL: ${DJANGO_THROTTLE_REGISTER_GLOBAL:-100/hour}
       POSTGRES_HOST: db
       POSTGRES_DB: ${POSTGRES_DB:-fstracker}
       POSTGRES_USER: ${POSTGRES_USER:-fstracker}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # Gunicorn tuning: defaults in backend/gunicorn.conf.py (2 workers x 4 threads).
-      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
-      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+      # Gunicorn tuning: defaults in backend/gunicorn.conf.py (1 worker x 8 threads:
+      # encryption keys live in process memory, so keep a single worker).
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-1}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-8}
     depends_on:
       db:
         condition: service_healthy
