@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PrivacyNotice from "@/components/PrivacyNotice";
 import Providers from "@/components/Providers";
 import { BottomNav, HeaderNav } from "@/components/NavLinks";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -22,6 +23,7 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
             </div>
           </div>
         </header>
+        <PrivacyNotice />
         {/* Bottom padding keeps content clear of the mobile tab bar. */}
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pt-8 md:pb-12">
           {children}

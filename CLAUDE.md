@@ -49,6 +49,8 @@ See `deploy/README.md` for the production runbook (first deploy, updates, backup
 - `DJANGO_CSRF_TRUSTED_ORIGINS`: comma-separated frontend origins (default `http://localhost:3000,http://localhost:3001`)
 - `DJANGO_THROTTLE_REGISTER` (default `5/hour` per IP), `DJANGO_THROTTLE_REGISTER_GLOBAL` (default `100/hour` site-wide)
 - `DJANGO_NUM_PROXIES` (default `0`): trusted proxies that append to `X-Forwarded-For`. See "Rate limiting & client IP".
+- `DJANGO_INACTIVE_ACCOUNT_MONTHS` (default `24`, `0` = off): accounts unused this long are deleted by
+  `manage.py enforce_retention` (run it daily from cron, see `docs/DATA_HANDLING.md`).
 - `DJANGO_TIME_ZONE` (default `Europe/Helsinki`): defines day/month boundaries for API filters and stats.
 
 Frontend env: `BACKEND_URL`, the Django origin that `/api/*` is proxied to (default `http://127.0.0.1:8002`).
@@ -72,15 +74,53 @@ JWT (djangorestframework-simplejwt) stored in **HTTP-only cookies**. Tokens are 
 - **Default permission is `IsAuthenticated`**: new API views are protected unless they opt out.
 
 Endpoints (`backend/accounts/urls.py`, mounted at `/api/auth/`): `csrf/` (GET), `login/`, `register/`,
-`refresh/`, `logout/` (POST), `me/` (GET).
+`refresh/`, `logout/` (POST), `me/` (GET, PATCH `{"email": ""}` to remove a legacy email, DELETE to erase the account), `me/export/` (GET,
+JSON of all the user's data), `privacy/accept/` (POST). See "Privacy & GDPR".
 
 ### Registration hardening (`RegisterView` / `RegisterSerializer`)
 
 - CSRF token required. Per-IP and global throttles (`accounts/throttles.py`).
 - Honeypot field `website`: hidden in the form; a non-empty value is rejected.
 - `AUTH_PASSWORD_VALIDATORS` run with the candidate user (similarity check), plus a password confirmation.
-- Username and email are unique case-insensitively, and email is lowercased. Only whitelisted fields are
+- Sign-up is anonymous: the client sends only a password (+ confirmation and the privacy checkbox). The server picks a
+  random username (`accounts/usernames.py`); no email or name is collected, so there is no password reset. Login matches
+  the username case-insensitively. Only whitelisted fields are
   used, so `is_staff`/`is_superuser` can't be set. On success the user is logged in (cookies set, 201).
+
+### Privacy & GDPR (`docs/DATA_HANDLING.md` is the full reference)
+
+- No data goes to third parties; the app has no analytics, external fonts or trackers. Keep it that way.
+- Registration requires `accept_privacy: true` (checkbox in `RegisterForm`, linking to `/privacy`). The accepted
+  policy version and time are stored in `accounts.PolicyAcceptance`. `UserSerializer.privacy_accepted` is false for
+  older accounts, and `components/PrivacyNotice.tsx` asks them to accept via `POST /api/auth/privacy/accept/`.
+- The policy page is `frontend/app/(legal)/privacy/page.tsx`, reachable signed in or out (`OPEN_PATHS` in
+  `proxy.ts`). Its version lives in `PRIVACY_POLICY_VERSION` (settings) and `POLICY_VERSION` (`lib/privacy.ts`):
+  bump both when the policy changes.
+- User rights: export (`accounts/export.py`), rectification (`PATCH /api/auth/me/`) and erasure
+  (`DELETE /api/auth/me/`, password required, cascades to all user data), all in the Account page
+  (`components/views/AccountView.tsx`).
+- **When you add a model or field with personal data**: cascade-delete it with the user, add it to
+  `accounts/export.py`, and update the data inventory in `docs/DATA_HANDLING.md` and the privacy page.
+- Never put personal data (email, username, request bodies) in logs or URLs.
+
+### Text encryption (`backend/accounts/crypto.py`)
+
+Free-text fields (`Tracker.description`, `DailyComment.comment`, monthly `comments`) are stored encrypted
+(Fernet, `enc1:` prefix) with a key derived from the user's password (scrypt + per-user salt in
+`accounts.UserEncryption`). The password is only seen at login/register: `unlock()` derives the key and keeps it in the
+in-memory `key_store` (never disk/DB/cookie/log); it is dropped on logout, account erasure, 30 days idle
+(`ENCRYPTION_KEY_IDLE_SECONDS`) and on process restart.
+
+- A session without its key counts as ended: `CookieJWTAuthentication` and `RefreshView` reject it, so the client
+  is sent to `/login`. Logging out anywhere locks the user's data for all their devices until the next login.
+- The key lives in one process: **run a single gunicorn worker and no `max_requests`**.
+- API fields use `tracker.serializers.EncryptedCharField` (max_length applies to the plaintext); code that writes
+  these fields directly must call `encrypt_text(user.pk, text)` (see the timer `stop` action). Reads outside a
+  request must have the user unlocked.
+- New free-text fields: add them to `ENCRYPTED_FIELDS` in `tracker/encryption.py` (legacy-plaintext migration at
+  login) and the export. Legacy plaintext is returned as is until the user's next login encrypts it.
+- The server cannot recover the data if the password is lost or changed outside the app. Tests unlock users with
+  `unlock(user, password)`.
 
 ### Rate limiting & client IP
 
@@ -127,7 +167,8 @@ API (mounted at `/api/`, every query scoped to `request.user`; other users' obje
 
 ## Architecture: frontend app (`frontend/app/(app)`)
 
-- Pages: Home `/`, History `/history`, Track `/track`, Stats `/stats`. Each `page.tsx` renders a view from
+- Pages: Home `/`, History `/history`, Track `/track`, Stats `/stats`, Account `/account` (reached from the user icon in
+  the header, not the tab bar). `/privacy` is a public page in `app/(legal)/`. Each `page.tsx` renders a view from
   `components/views/` inside `<ClientOnly>`: views use "now" and the browser time zone, which can't be
   prerendered (Next errors on `new Date()` during prerender).
 - Layout: header nav on `md+`; on phones a fixed bottom tab bar (`components/NavLinks.tsx`) with
@@ -162,9 +203,9 @@ API (mounted at `/api/`, every query scoped to `request.user`; other users' obje
   `frontend/Dockerfile` has context `frontend/`. `BACKEND_URL` is a **build arg** for the prod frontend, since
   `next.config.ts` bakes the rewrite target into the build (`output: "standalone"`).
 - Django receives `Host: backend` from the Next proxy, so `backend` is in the prod `ALLOWED_HOSTS`.
-- Gunicorn for 1 vCPU / <= 2 GB: `backend/gunicorn.conf.py` (2 workers x 4 threads, `gthread`, `preload_app`,
-  `max_requests` recycling, control socket disabled), started by `backend/scripts/start-prod.sh`
-  (`migrate`, then gunicorn). Tune with `GUNICORN_WORKERS` / `GUNICORN_THREADS`. Containers have memory
+- Gunicorn for 1 vCPU / <= 2 GB: `backend/gunicorn.conf.py` (1 worker x 8 threads, `gthread`, `preload_app`, control socket disabled;
+  **single process and no `max_requests` on purpose**, see "Text encryption"), started by `backend/scripts/start-prod.sh`
+  (`migrate`, then gunicorn). Tune with `GUNICORN_THREADS` (not workers). Containers have memory
   limits (db 384M, backend 384M, frontend 320M); PostgreSQL is tuned to match (see `compose.prod.yaml`).
 - nginx **overwrites** `X-Forwarded-For` with the real client IP and the backend runs with
   `DJANGO_NUM_PROXIES=1` (see "Rate limiting & client IP"). nginx also rate-limits login/register/refresh.

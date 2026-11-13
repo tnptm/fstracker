@@ -4,6 +4,8 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
+from accounts.crypto import is_encrypted, key_store, unlock
+
 from .dates import current_month, day_start
 from .models import DailyComment, MonthlyHourGoal, Tracker
 
@@ -17,6 +19,9 @@ class ApiTestCase(APITestCase):
         User = get_user_model()
         self.user = User.objects.create_user('alice', password='pw-alice-123')
         self.other = User.objects.create_user('mallory', password='pw-mallory-123')
+        key_store.clear()
+        unlock(self.user, 'pw-alice-123')
+        unlock(self.other, 'pw-mallory-123')
         self.client.force_authenticate(self.user)
 
     def entry(self, start, end, user=None, description=''):
@@ -98,7 +103,7 @@ class TrackerTests(ApiTestCase):
         self.assertEqual(res.status_code, 200, res.data)
         e.refresh_from_db()
         self.assertEqual(e.end_time, aware(2026, 10, 1, 12))
-        self.assertEqual(e.description, 'Longer shift')
+        self.assertEqual(res.data['description'], 'Longer shift')
 
     def test_cannot_access_other_users_entries(self):
         e = self.entry(aware(2026, 10, 1, 9), aware(2026, 10, 1, 11), user=self.other)
@@ -263,3 +268,52 @@ class StatsTests(ApiTestCase):
 
     def test_bad_year(self):
         self.assertEqual(self.client.get('/api/stats/?year=abc').status_code, 400)
+
+
+class EncryptionTests(ApiTestCase):
+    def test_description_is_stored_encrypted_and_returned_decrypted(self):
+        res = self.client.post('/api/entries/', {
+            'start_time': aware(2026, 10, 1, 9).isoformat(),
+            'end_time': aware(2026, 10, 1, 11).isoformat(),
+            'description': 'Helped Mr Virtanen',
+        }, format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['description'], 'Helped Mr Virtanen')
+        stored = Tracker.objects.get(pk=res.data['id']).description
+        self.assertTrue(is_encrypted(stored))
+        self.assertNotIn('Virtanen', stored)
+        self.assertEqual(
+            self.client.get('/api/entries/').data[0]['description'], 'Helped Mr Virtanen'
+        )
+
+    def test_timer_start_and_stop_encrypt_descriptions(self):
+        self.client.post('/api/entries/start/', {'description': 'Secret one'}, format='json')
+        self.assertTrue(is_encrypted(Tracker.objects.get().description))
+        res = self.client.post('/api/entries/stop/', {'description': 'Secret two'}, format='json')
+        self.assertEqual(res.data['description'], 'Secret two')
+        stored = Tracker.objects.get().description
+        self.assertTrue(is_encrypted(stored))
+        self.assertNotIn('Secret', stored)
+
+    def test_notes_and_monthly_comments_are_encrypted(self):
+        self.client.post('/api/daily-comments/', {
+            'date': '2026-10-05', 'kind': 'sick', 'comment': 'Flu and fever',
+        }, format='json')
+        self.client.put('/api/goals/2026-10/', {'hour_goal': 10, 'comments': 'Private'}, format='json')
+        self.assertTrue(is_encrypted(DailyComment.objects.get().comment))
+        self.assertTrue(is_encrypted(MonthlyHourGoal.objects.get().comments))
+        self.assertEqual(
+            self.client.get('/api/daily-comments/').data[0]['comment'], 'Flu and fever'
+        )
+        self.assertEqual(self.client.get('/api/goals/2026-10/').data['comments'], 'Private')
+
+    def test_legacy_plaintext_is_still_readable(self):
+        self.entry(aware(2026, 10, 1, 9), aware(2026, 10, 1, 10), description='old plain text')
+        self.assertEqual(self.client.get('/api/entries/').data[0]['description'], 'old plain text')
+
+    def test_data_is_unreadable_without_the_key(self):
+        self.client.post('/api/entries/start/', {'description': 'Hidden'}, format='json')
+        key_store.drop(self.user.pk)
+        res = self.client.get('/api/entries/')
+        self.assertEqual(res.status_code, 401)
+        self.assertNotIn('Hidden', str(res.data))
