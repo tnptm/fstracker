@@ -9,12 +9,14 @@ from django.utils import timezone
 from rest_framework.test import APIClient, APITestCase
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
+from accounts.crypto import is_encrypted, key_store
 from accounts.models import PolicyAcceptance
 from tracker.models import DailyComment, MonthlyCourses, MonthlyHourGoal, Tracker
 
 
 class AuthFlowTests(APITestCase):
     def setUp(self):
+        key_store.clear()
         self.user = get_user_model().objects.create_user('alice', password='s3cret-pass')
         # enforce_csrf_checks makes the test client behave like a real browser.
         self.client = APIClient(enforce_csrf_checks=True)
@@ -95,6 +97,53 @@ class AuthFlowTests(APITestCase):
         self.client.cookies[settings.AUTH_COOKIE_REFRESH] = refresh
         res = self.client.post('/api/auth/refresh/', **self.csrf_headers())
         self.assertEqual(res.status_code, 401)
+
+
+    def test_login_keeps_key_in_memory_and_logout_drops_it(self):
+        self.assertFalse(key_store.has(self.user.pk))
+        self.login()
+        self.assertTrue(key_store.has(self.user.pk))
+        self.client.post('/api/auth/logout/', **self.csrf_headers())
+        self.assertFalse(key_store.has(self.user.pk))
+
+    def test_failed_login_creates_no_key(self):
+        self.login(password='wrong')
+        self.assertFalse(key_store.has(self.user.pk))
+
+    def test_session_without_key_is_ended(self):
+        # e.g. after a server restart: valid cookies but the in-memory key is gone.
+        self.login()
+        key_store.clear()
+        self.assertEqual(self.client.get('/api/auth/me/').status_code, 401)
+        res = self.client.post('/api/auth/refresh/', **self.csrf_headers())
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(res.cookies[settings.AUTH_COOKIE_REFRESH].value, '')
+
+    def test_login_encrypts_legacy_plaintext(self):
+        entry = Tracker.objects.create(
+            user=self.user,
+            start_time=timezone.now() - timezone.timedelta(hours=2),
+            end_time=timezone.now() - timezone.timedelta(hours=1),
+            description='written before encryption',
+        )
+        self.login()
+        entry.refresh_from_db()
+        self.assertTrue(is_encrypted(entry.description))
+        res = self.client.get('/api/entries/')
+        self.assertEqual(res.data[0]['description'], 'written before encryption')
+        self.assertEqual(
+            self.client.get('/api/auth/me/export/').data['time_entries'][0]['description'],
+            'written before encryption',
+        )
+
+    def test_same_password_gives_same_key_across_logins(self):
+        self.login()
+        res = self.client.post('/api/entries/start/', {'description': 'persist'}, format='json',
+                               **self.csrf_headers())
+        self.assertEqual(res.status_code, 201)
+        self.client.post('/api/auth/logout/', **self.csrf_headers())
+        self.login()
+        self.assertEqual(self.client.get('/api/entries/current/').data['description'], 'persist')
 
 
 class RegisterTests(APITestCase):

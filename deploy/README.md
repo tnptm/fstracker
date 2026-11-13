@@ -69,14 +69,16 @@ logs are short-lived, so rotate nginx access logs (e.g. 14 days) too. Details: `
 
 | Part | Setting | Why |
 |---|---|---|
-| gunicorn | 2 workers x 4 threads (`backend/gunicorn.conf.py`) | 8 concurrent requests for ~110 MB; more processes only compete for the single core |
-| gunicorn | `max_requests=1000` + jitter, `preload_app` | recycle workers against slow memory growth, share memory between workers |
+| gunicorn | 1 worker x 8 threads (`backend/gunicorn.conf.py`) | 8 concurrent requests; **must stay a single process**: per-user encryption keys live in its memory |
+| gunicorn | `max_requests=0`, `preload_app` | recycling the worker would drop all keys and sign everyone out |
 | PostgreSQL | `shared_buffers=96MB`, `max_connections=25` | fits the 384 MB limit; the app needs about 8 connections |
 | Next.js | `--max-old-space-size=256`, standalone output | small image and heap |
 | Compose | `mem_limit`: db 384M, backend 384M, frontend 320M | about 1.1 GB worst case, so a runaway container is killed instead of the whole server |
 
 Measured idle: backend ~107 MB, frontend ~40 MB, db ~32 MB. On a server with 1 GB or less, add a swap file
-and lower `GUNICORN_THREADS`/`GUNICORN_WORKERS` in `.env.prod`.
+and lower `GUNICORN_THREADS` in `.env.prod`.
+
+Encryption keys are lost whenever the backend restarts (deploys, reboots): users are asked to sign in again.
 
 ## Security notes
 

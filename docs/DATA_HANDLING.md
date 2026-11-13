@@ -43,6 +43,22 @@ Open points: no written confirmation or data processing agreement from the hosti
 provider can still count as a processor under the EDPB's view). Ask for the provider's DPA or a written statement,
 and file it. Revisit this section if a backup destination, mail service or any other service is added.
 
+## Encryption of free text
+
+Free-text fields (entry descriptions, day notes, monthly comments) are encrypted at rest because users may type
+personal data there despite the warnings. Implementation: `backend/accounts/crypto.py`.
+
+- Fernet (AES-128-CBC + HMAC) with a key derived from the user's password using scrypt and a per-user random salt.
+- The password is only available at login/sign-up. The derived key is kept **only in the backend process memory**
+  while the user is signed in; it is never stored in the database, files, cookies or logs. It is dropped on logout,
+  account deletion, after 30 days without use and on every restart (users then sign in again).
+- Consequently the data is unreadable in the database, in backups and for administrators, and **cannot be
+  recovered if the password is lost** (there is no password reset). It is decrypted for the data export.
+- Not encrypted: timestamps, durations, day-note type, goal and course numbers (needed for statistics).
+- Limits: someone with access to the running server process could read keys from memory, and the key exists only
+  in one process, so the backend must run as a single gunicorn worker.
+- Entries written before this feature are encrypted the next time their owner logs in.
+
 ## Data inventory
 
 | Data | Where | Purpose | Retention |
@@ -50,7 +66,8 @@ and file it. Revisit this section if a backup destination, mail service or any o
 | Random username, password hash, `date_joined`, `last_login` | `auth_user` | Account and login. No email or name is collected | Until account deletion or inactivity limit |
 | Legacy `email` (accounts created before sign-up became anonymous) | `auth_user` | Not used for anything; the user can remove it under Account | Until removed or the account is deleted |
 | `first_name`, `last_name` | `auth_user` | Not collected by the app (always empty) | Same |
-| Time entries, day notes, goals, courses (with comments) | `tracker_*` | The app's main function | Same |
+| Time entries, day notes, goals, courses (free-text comments are **encrypted**, see below) | `tracker_*` | The app's main function | Same |
+| Encryption salt (random, not personal data) | `accounts_userencryption` | Derives the user's text-encryption key from their password | Deleted with the account |
 | Policy acceptance (version, timestamp) | `accounts_policyacceptance` | Proof the user was informed | Deleted with the account |
 | JWT ids (no personal data) | `token_blacklist_*` | Session revocation | Deleted at logout, expiry, or account deletion |
 | IP, user agent, URL, time | gunicorn/Docker logs, nginx logs | Security and debugging | Docker: capped at 3 × 10 MB; nginx: logrotate (keep short, e.g. 14 days) |

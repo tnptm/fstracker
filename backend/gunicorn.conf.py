@@ -3,15 +3,14 @@
 Everything can be overridden with GUNICORN_* environment variables.
 
 Why these values:
-- 2 workers on 1 core: one can serve while the other is busy or being
-  recycled. More processes would only compete for the single CPU and memory.
-- gthread with 4 threads: requests mostly wait on PostgreSQL, so threads give
-  concurrency (2 x 4 = 8 requests) for a few MB each instead of ~60-80 MB per
-  extra worker process.
-- preload_app: load Django once in the master so workers share memory pages
-  (copy-on-write) and start faster.
-- max_requests (+ jitter): recycle workers regularly so slow memory growth
-  can't build up; jitter avoids both restarting at the same time.
+- ONE worker process: users' encryption keys (derived from their passwords, see
+  accounts/crypto.py) live in process memory, so every request must reach the same
+  process. Do not raise GUNICORN_WORKERS above 1.
+- gthread with 8 threads: requests mostly wait on PostgreSQL, so threads give
+  concurrency for a few MB each instead of ~60-80 MB per extra worker process.
+- preload_app: load Django once in the master and start faster.
+- max_requests is off (0): recycling the worker would drop all in-memory keys and
+  sign every user out. Set GUNICORN_MAX_REQUESTS only if you accept that.
 """
 
 import os
@@ -23,13 +22,13 @@ def _int(name, default):
 
 bind = os.getenv('GUNICORN_BIND', '0.0.0.0:8000')
 
-workers = _int('GUNICORN_WORKERS', 2)
+workers = _int('GUNICORN_WORKERS', 1)
 worker_class = 'gthread'
-threads = _int('GUNICORN_THREADS', 4)
+threads = _int('GUNICORN_THREADS', 8)
 preload_app = True
 
-max_requests = _int('GUNICORN_MAX_REQUESTS', 1000)
-max_requests_jitter = _int('GUNICORN_MAX_REQUESTS_JITTER', 100)
+max_requests = _int('GUNICORN_MAX_REQUESTS', 0)
+max_requests_jitter = _int('GUNICORN_MAX_REQUESTS_JITTER', 0)
 
 # Fail slow requests instead of tying up one of only 8 slots.
 timeout = _int('GUNICORN_TIMEOUT', 30)

@@ -207,6 +207,11 @@ PRIVACY_POLICY_VERSION = '2026-11-13'
 # (0 disables it). Admin (staff) accounts are never deleted automatically.
 INACTIVE_ACCOUNT_MONTHS = int(os.getenv('DJANGO_INACTIVE_ACCOUNT_MONTHS', '24'))
 
+# Free-text fields are encrypted with a key derived from the user's password, kept in
+# process memory only while they are signed in (accounts/crypto.py). Keys unused for
+# this long are dropped; keep it equal to the refresh token lifetime (30 days).
+ENCRYPTION_KEY_IDLE_SECONDS = 30 * 24 * 3600
+
 # Session length: the refresh token lives 30 days and is rotated on every
 # refresh, so the session only expires after 30 days of inactivity.
 SIMPLE_JWT = {

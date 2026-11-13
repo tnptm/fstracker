@@ -3,6 +3,9 @@ import datetime as dt
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
+from rest_framework.fields import empty
+
+from accounts.crypto import decrypt_text, encrypt_text
 
 from .dates import parse_month
 from .models import DailyComment, MonthlyCourses, MonthlyHourGoal, Tracker
@@ -11,7 +14,25 @@ from .models import DailyComment, MonthlyCourses, MonthlyHourGoal, Tracker
 CLOCK_SKEW = dt.timedelta(minutes=2)
 
 
+class EncryptedCharField(serializers.CharField):
+    """Text stored encrypted with the requesting user's key (accounts/crypto.py).
+
+    Length limits apply to the plaintext; the value is encrypted after validation.
+    """
+
+    def _user_id(self):
+        return self.context['request'].user.pk
+
+    def to_representation(self, value):
+        return decrypt_text(self._user_id(), value)
+
+    def run_validation(self, data=empty):
+        value = super().run_validation(data)
+        return encrypt_text(self._user_id(), value)
+
+
 class TrackerSerializer(serializers.ModelSerializer):
+    description = EncryptedCharField(required=False, allow_blank=True, max_length=2000)
     duration_seconds = serializers.SerializerMethodField()
     is_running = serializers.BooleanField(read_only=True)
 
@@ -22,7 +43,6 @@ class TrackerSerializer(serializers.ModelSerializer):
             'duration_seconds', 'is_running', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
-        extra_kwargs = {'description': {'max_length': 2000}}
 
     def get_duration_seconds(self, obj):
         end = obj.end_time or timezone.now()
@@ -72,12 +92,12 @@ class TimerStartSerializer(serializers.Serializer):
 
 class DailyCommentSerializer(serializers.ModelSerializer):
     kind_label = serializers.CharField(source='get_kind_display', read_only=True)
+    comment = EncryptedCharField(required=False, allow_blank=True, max_length=2000)
 
     class Meta:
         model = DailyComment
         fields = ['id', 'date', 'kind', 'kind_label', 'comment', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
-        extra_kwargs = {'comment': {'max_length': 2000}}
 
     def validate_date(self, value):
         user = self.context['request'].user
@@ -101,6 +121,7 @@ class MonthField(serializers.Field):
 
 class MonthlyCoursesSerializer(serializers.ModelSerializer):
     month = MonthField(read_only=True)
+    comments = EncryptedCharField(required=False, allow_blank=True)
 
     class Meta:
         model = MonthlyCourses
@@ -111,6 +132,7 @@ class MonthlyCoursesSerializer(serializers.ModelSerializer):
 
 class MonthlyHourGoalSerializer(serializers.ModelSerializer):
     month = MonthField(read_only=True)
+    comments = EncryptedCharField(required=False, allow_blank=True)
 
     class Meta:
         model = MonthlyHourGoal

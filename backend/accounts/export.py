@@ -7,6 +7,8 @@ privacy policy and docs/DATA_HANDLING.md).
 from django.conf import settings
 from django.utils import timezone
 
+from tracker.encryption import decrypt_export_rows
+
 
 def export_user_data(user):
     return {
@@ -26,24 +28,33 @@ def export_user_data(user):
             user.policy_acceptances.order_by('accepted_at').values('version', 'accepted_at')
         ),
         'current_privacy_policy_version': settings.PRIVACY_POLICY_VERSION,
-        'time_entries': list(
+        # Free text is stored encrypted; the export has it decrypted (needs the user's key).
+        'time_entries': decrypt_export_rows(
+            user.pk,
             user.time_entries.order_by('start_time').values(
                 'start_time', 'end_time', 'description', 'created_at', 'updated_at'
-            )
+            ),
+            'description',
         ),
-        'daily_comments': list(
+        'daily_comments': decrypt_export_rows(
+            user.pk,
             user.daily_comments.order_by('date').values(
                 'date', 'kind', 'comment', 'created_at', 'updated_at'
-            )
+            ),
+            'comment',
         ),
-        'monthly_hour_goals': list(
+        'monthly_hour_goals': decrypt_export_rows(
+            user.pk,
             user.hour_goals.order_by('month').values(
                 'month', 'hour_goal', 'comments', 'created_at', 'updated_at'
-            )
+            ),
+            'comments',
         ),
-        'monthly_courses': list(
+        'monthly_courses': decrypt_export_rows(
+            user.pk,
             user.monthly_courses.order_by('month').values(
                 'month', 'course_number', 'comments', 'created_at', 'updated_at'
-            )
+            ),
+            'comments',
         ),
     }

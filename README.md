@@ -284,7 +284,7 @@ Set in `.env.prod` (template: `.env.prod.example`):
 | `POSTGRES_PASSWORD` | Required. Also `POSTGRES_DB` and `POSTGRES_USER` (default `fstracker`) |
 | `DJANGO_TIME_ZONE` | Default `Europe/Helsinki` |
 | `DJANGO_THROTTLE_REGISTER`, `DJANGO_THROTTLE_REGISTER_GLOBAL` | Sign-up rate limits |
-| `GUNICORN_WORKERS`, `GUNICORN_THREADS` | Default 2 × 4, tuned for 1 vCPU |
+| `GUNICORN_WORKERS`, `GUNICORN_THREADS` | Default 1 × 8 (keep 1 worker: encryption keys live in process memory) |
 | `FRONTEND_PORT`, `BACKEND_PORT` | Host ports on `127.0.0.1` (defaults 3000 and 8000) |
 
 Production-only settings are fixed in `compose.prod.yaml`: `DJANGO_DEBUG=False` (which turns on secure

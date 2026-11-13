@@ -79,10 +79,12 @@ export default function PrivacyPage() {
       </ul>
       <p>
         Because there is no email address, we cannot send you messages or reset a lost password:
-        keep your username and password safe. Accounts created earlier may still have an email
+        keep your username and password safe. Comments and descriptions are stored encrypted with a
+        key derived from your password, which the server only holds in memory while you are signed
+        in, so they cannot be recovered if you lose your password. Accounts created earlier may still have an email
         address stored; it is not used for anything, and you can remove it under Account. Please
         do not write sensitive or identifying information, such as health details or real names,
-        into comments. Whatever you enter is stored exactly as you enter it.
+        into comments. Whatever you enter is stored exactly as you enter it (encrypted).
       </p>
 
       <h2 className={h2}>3. Legal basis</h2>

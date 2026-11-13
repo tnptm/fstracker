@@ -23,3 +23,18 @@ class PolicyAcceptance(models.Model):
 
     def __str__(self):
         return f'{self.user} accepted {self.version} at {self.accepted_at:%Y-%m-%d %H:%M}'
+
+
+class UserEncryption(models.Model):
+    """Random salt for deriving the user's text-encryption key from their password.
+
+    The key itself is never stored (see accounts/crypto.py). Deleted with the user.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='encryption'
+    )
+    salt = models.BinaryField(max_length=16)
+
+    def __str__(self):
+        return f'Encryption salt for {self.user}'

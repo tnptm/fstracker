@@ -9,6 +9,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.crypto import encrypt_text
+
 from .dates import current_month, day_start, month_bounds, parse_date, parse_month, parse_year
 from .models import DailyComment, MonthlyCourses, MonthlyHourGoal, Tracker
 from .serializers import (
@@ -112,7 +114,7 @@ class TrackerViewSet(UserOwnedMixin, viewsets.ModelViewSet):
             return Response({'detail': 'No timer is running.'}, status=status.HTTP_409_CONFLICT)
         entry.end_time = max(timezone.now(), entry.start_time + dt.timedelta(seconds=1))
         if 'description' in params.validated_data:
-            entry.description = params.validated_data['description']
+            entry.description = encrypt_text(request.user.pk, params.validated_data['description'])
         entry.save(update_fields=['end_time', 'description', 'updated_at'])
         return Response(self.get_serializer(entry).data)
 

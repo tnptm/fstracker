@@ -103,6 +103,25 @@ JSON of all the user's data), `privacy/accept/` (POST). See "Privacy & GDPR".
   `accounts/export.py`, and update the data inventory in `docs/DATA_HANDLING.md` and the privacy page.
 - Never put personal data (email, username, request bodies) in logs or URLs.
 
+### Text encryption (`backend/accounts/crypto.py`)
+
+Free-text fields (`Tracker.description`, `DailyComment.comment`, monthly `comments`) are stored encrypted
+(Fernet, `enc1:` prefix) with a key derived from the user's password (scrypt + per-user salt in
+`accounts.UserEncryption`). The password is only seen at login/register: `unlock()` derives the key and keeps it in the
+in-memory `key_store` (never disk/DB/cookie/log); it is dropped on logout, account erasure, 30 days idle
+(`ENCRYPTION_KEY_IDLE_SECONDS`) and on process restart.
+
+- A session without its key counts as ended: `CookieJWTAuthentication` and `RefreshView` reject it, so the client
+  is sent to `/login`. Logging out anywhere locks the user's data for all their devices until the next login.
+- The key lives in one process: **run a single gunicorn worker and no `max_requests`**.
+- API fields use `tracker.serializers.EncryptedCharField` (max_length applies to the plaintext); code that writes
+  these fields directly must call `encrypt_text(user.pk, text)` (see the timer `stop` action). Reads outside a
+  request must have the user unlocked.
+- New free-text fields: add them to `ENCRYPTED_FIELDS` in `tracker/encryption.py` (legacy-plaintext migration at
+  login) and the export. Legacy plaintext is returned as is until the user's next login encrypts it.
+- The server cannot recover the data if the password is lost or changed outside the app. Tests unlock users with
+  `unlock(user, password)`.
+
 ### Rate limiting & client IP
 
 Next's external rewrite does **not** add `X-Forwarded-For` and passes a client-supplied one through
@@ -184,9 +203,9 @@ API (mounted at `/api/`, every query scoped to `request.user`; other users' obje
   `frontend/Dockerfile` has context `frontend/`. `BACKEND_URL` is a **build arg** for the prod frontend, since
   `next.config.ts` bakes the rewrite target into the build (`output: "standalone"`).
 - Django receives `Host: backend` from the Next proxy, so `backend` is in the prod `ALLOWED_HOSTS`.
-- Gunicorn for 1 vCPU / <= 2 GB: `backend/gunicorn.conf.py` (2 workers x 4 threads, `gthread`, `preload_app`,
-  `max_requests` recycling, control socket disabled), started by `backend/scripts/start-prod.sh`
-  (`migrate`, then gunicorn). Tune with `GUNICORN_WORKERS` / `GUNICORN_THREADS`. Containers have memory
+- Gunicorn for 1 vCPU / <= 2 GB: `backend/gunicorn.conf.py` (1 worker x 8 threads, `gthread`, `preload_app`, control socket disabled;
+  **single process and no `max_requests` on purpose**, see "Text encryption"), started by `backend/scripts/start-prod.sh`
+  (`migrate`, then gunicorn). Tune with `GUNICORN_THREADS` (not workers). Containers have memory
   limits (db 384M, backend 384M, frontend 320M); PostgreSQL is tuned to match (see `compose.prod.yaml`).
 - nginx **overwrites** `X-Forwarded-For` with the real client IP and the backend runs with
   `DJANGO_NUM_PROXIES=1` (see "Rate limiting & client IP"). nginx also rate-limits login/register/refresh.

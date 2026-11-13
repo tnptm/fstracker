@@ -12,11 +12,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from tracker.encryption import encrypt_legacy_rows
+
 from .authentication import enforce_csrf
 from .cookies import clear_auth_cookies, set_auth_cookies
+from .crypto import key_store, lock, unlock
 from .export import export_user_data
 from .models import PolicyAcceptance
 from .serializers import (
@@ -27,6 +31,15 @@ from .serializers import (
     UserSerializer,
 )
 from .throttles import RegisterGlobalThrottle, RegisterIPThrottle
+
+
+def _refresh_token_user_id(raw):
+    """User id of a valid (not expired, not blacklisted) refresh token, else None."""
+    try:
+        claim = RefreshToken(raw)[jwt_settings.USER_ID_CLAIM]
+    except TokenError:
+        return None
+    return get_user_model()._meta.pk.to_python(claim)  # the claim is a string
 
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
@@ -66,6 +79,11 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # The password is only available here: derive the encryption key from it and keep
+        # it in memory for this session (accounts/crypto.py).
+        unlock(user, credentials['password'])
+        encrypt_legacy_rows(user)
+
         refresh = RefreshToken.for_user(user)
         update_last_login(None, user)
 
@@ -91,6 +109,7 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
             user = serializer.save()
+        unlock(user, serializer.validated_data['password'])
 
         refresh = RefreshToken.for_user(user)
         update_last_login(None, user)
@@ -116,6 +135,14 @@ class RefreshView(APIView):
                 {'detail': 'No refresh token.'}, status=status.HTTP_401_UNAUTHORIZED
             )
 
+        # Without the in-memory encryption key (restart, idle expiry, logout elsewhere)
+        # the session cannot continue: the user must sign in to derive it again.
+        user_id = _refresh_token_user_id(raw)
+        if user_id is None or not key_store.has(user_id):
+            return clear_auth_cookies(
+                Response({'detail': 'Session expired.'}, status=status.HTTP_401_UNAUTHORIZED)
+            )
+
         serializer = TokenRefreshSerializer(data={'refresh': raw})
         try:
             serializer.is_valid(raise_exception=True)
@@ -138,6 +165,9 @@ class LogoutView(APIView):
         enforce_csrf(request)
         raw = request.COOKIES.get(settings.AUTH_COOKIE_REFRESH)
         if raw is not None:
+            user_id = _refresh_token_user_id(raw)
+            if user_id is not None:
+                lock(user_id)  # forget the encryption key; sign in again to read the notes
             try:
                 RefreshToken(raw).blacklist()
             except TokenError:
@@ -168,12 +198,14 @@ class MeView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         user = request.user
+        user_id = user.pk
         with transaction.atomic():
             # Token rows reference the user with SET_NULL, so remove them explicitly
             # (this also removes their blacklist entries). Everything else the user owns
             # (entries, notes, goals, courses, policy acceptances) is deleted by cascade.
             OutstandingToken.objects.filter(user=user).delete()
             user.delete()
+        lock(user_id)
         response = Response(status=status.HTTP_204_NO_CONTENT)
         return clear_auth_cookies(response)
 
