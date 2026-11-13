@@ -51,6 +51,20 @@ and rebuilds. **Never run `down -v`** on production: that deletes the volume.
 `deploy/backup-db.sh` writes a compressed `pg_dump` and prunes old ones (see the header for the cron
 line and the restore command).
 
+## Data retention (GDPR)
+
+Schedule the retention job once a day. It deletes accounts unused for `DJANGO_INACTIVE_ACCOUNT_MONTHS` (default
+24) and flushes expired token rows; admins are skipped. Preview with `--dry-run`:
+
+```bash
+docker compose --env-file .env.prod -f compose.prod.yaml exec -T backend python manage.py enforce_retention --dry-run
+# cron (daily 04:15):
+15 4 * * * cd /opt/fstracker && docker compose --env-file .env.prod -f compose.prod.yaml exec -T backend python manage.py enforce_retention
+```
+
+The privacy policy promises backups roll off within about two weeks (`deploy/backup-db.sh` keeps 14) and that
+logs are short-lived, so rotate nginx access logs (e.g. 14 days) too. Details: `docs/DATA_HANDLING.md`.
+
 ## Resource notes (1 vCPU, <= 2 GB)
 
 | Part | Setting | Why |

@@ -20,6 +20,8 @@ Thanks for your interest in fstracker! Contributions are welcome, but they are a
 - By opening a pull request you agree that your contribution is licensed under the [MIT License](LICENSE) that covers this project.
 - Python dependencies are managed only with **uv** (`uv add <package>`). Do not use pip or edit `uv.lock` by hand.
 - Follow the conventions in [CLAUDE.md](CLAUDE.md), including scoping every query to `request.user` and adding tests for new backend features.
+- Respect user privacy: no third-party services, trackers or analytics, and no personal data in logs. A change that
+  stores new personal data must follow [docs/DATA_HANDLING.md](docs/DATA_HANDLING.md) (export, deletion, policy).
 - Keep pull requests free of secrets, `.env` files, database files and other local data.
 
 ## Reporting bugs and security issues

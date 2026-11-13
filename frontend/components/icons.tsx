@@ -43,6 +43,9 @@ export const MonitorIcon = (p: IconProps) => (
 export const LogOutIcon = (p: IconProps) => (
   <Icon {...p}><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><path d="M10 17l-5-5 5-5" /><path d="M5 12h12" /></Icon>
 );
+export const UserIcon = (p: IconProps) => (
+  <Icon {...p}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></Icon>
+);
 export const PlayIcon = (p: IconProps) => (
   <Icon {...p} fill="currentColor" stroke="none"><path d="M8 5.1v13.8a1 1 0 0 0 1.5.9l11-6.9a1 1 0 0 0 0-1.7l-11-6.9A1 1 0 0 0 8 5.1Z" /></Icon>
 );

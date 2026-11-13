@@ -1,3 +1,4 @@
+import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import { LogoMark } from "@/components/icons";
 
@@ -21,6 +22,11 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
           </div>
         </div>
         <div className="card p-6 sm:p-8">{children}</div>
+        <p className="mt-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
+          <Link href="/privacy" className="underline hover:text-zinc-700 dark:hover:text-zinc-200">
+            Privacy policy
+          </Link>
+        </p>
       </div>
     </div>
   );

@@ -49,6 +49,8 @@ See `deploy/README.md` for the production runbook (first deploy, updates, backup
 - `DJANGO_CSRF_TRUSTED_ORIGINS`: comma-separated frontend origins (default `http://localhost:3000,http://localhost:3001`)
 - `DJANGO_THROTTLE_REGISTER` (default `5/hour` per IP), `DJANGO_THROTTLE_REGISTER_GLOBAL` (default `100/hour` site-wide)
 - `DJANGO_NUM_PROXIES` (default `0`): trusted proxies that append to `X-Forwarded-For`. See "Rate limiting & client IP".
+- `DJANGO_INACTIVE_ACCOUNT_MONTHS` (default `24`, `0` = off): accounts unused this long are deleted by
+  `manage.py enforce_retention` (run it daily from cron, see `docs/DATA_HANDLING.md`).
 - `DJANGO_TIME_ZONE` (default `Europe/Helsinki`): defines day/month boundaries for API filters and stats.
 
 Frontend env: `BACKEND_URL`, the Django origin that `/api/*` is proxied to (default `http://127.0.0.1:8002`).
@@ -72,15 +74,34 @@ JWT (djangorestframework-simplejwt) stored in **HTTP-only cookies**. Tokens are 
 - **Default permission is `IsAuthenticated`**: new API views are protected unless they opt out.
 
 Endpoints (`backend/accounts/urls.py`, mounted at `/api/auth/`): `csrf/` (GET), `login/`, `register/`,
-`refresh/`, `logout/` (POST), `me/` (GET).
+`refresh/`, `logout/` (POST), `me/` (GET, PATCH `{"email": ""}` to remove a legacy email, DELETE to erase the account), `me/export/` (GET,
+JSON of all the user's data), `privacy/accept/` (POST). See "Privacy & GDPR".
 
 ### Registration hardening (`RegisterView` / `RegisterSerializer`)
 
 - CSRF token required. Per-IP and global throttles (`accounts/throttles.py`).
 - Honeypot field `website`: hidden in the form; a non-empty value is rejected.
 - `AUTH_PASSWORD_VALIDATORS` run with the candidate user (similarity check), plus a password confirmation.
-- Username and email are unique case-insensitively, and email is lowercased. Only whitelisted fields are
+- Sign-up is anonymous: the client sends only a password (+ confirmation and the privacy checkbox). The server picks a
+  random username (`accounts/usernames.py`); no email or name is collected, so there is no password reset. Login matches
+  the username case-insensitively. Only whitelisted fields are
   used, so `is_staff`/`is_superuser` can't be set. On success the user is logged in (cookies set, 201).
+
+### Privacy & GDPR (`docs/DATA_HANDLING.md` is the full reference)
+
+- No data goes to third parties; the app has no analytics, external fonts or trackers. Keep it that way.
+- Registration requires `accept_privacy: true` (checkbox in `RegisterForm`, linking to `/privacy`). The accepted
+  policy version and time are stored in `accounts.PolicyAcceptance`. `UserSerializer.privacy_accepted` is false for
+  older accounts, and `components/PrivacyNotice.tsx` asks them to accept via `POST /api/auth/privacy/accept/`.
+- The policy page is `frontend/app/(legal)/privacy/page.tsx`, reachable signed in or out (`OPEN_PATHS` in
+  `proxy.ts`). Its version lives in `PRIVACY_POLICY_VERSION` (settings) and `POLICY_VERSION` (`lib/privacy.ts`):
+  bump both when the policy changes.
+- User rights: export (`accounts/export.py`), rectification (`PATCH /api/auth/me/`) and erasure
+  (`DELETE /api/auth/me/`, password required, cascades to all user data), all in the Account page
+  (`components/views/AccountView.tsx`).
+- **When you add a model or field with personal data**: cascade-delete it with the user, add it to
+  `accounts/export.py`, and update the data inventory in `docs/DATA_HANDLING.md` and the privacy page.
+- Never put personal data (email, username, request bodies) in logs or URLs.
 
 ### Rate limiting & client IP
 
@@ -127,7 +148,8 @@ API (mounted at `/api/`, every query scoped to `request.user`; other users' obje
 
 ## Architecture: frontend app (`frontend/app/(app)`)
 
-- Pages: Home `/`, History `/history`, Track `/track`, Stats `/stats`. Each `page.tsx` renders a view from
+- Pages: Home `/`, History `/history`, Track `/track`, Stats `/stats`, Account `/account` (reached from the user icon in
+  the header, not the tab bar). `/privacy` is a public page in `app/(legal)/`. Each `page.tsx` renders a view from
   `components/views/` inside `<ClientOnly>`: views use "now" and the browser time zone, which can't be
   prerendered (Next errors on `new Date()` during prerender).
 - Layout: header nav on `md+`; on phones a fixed bottom tab bar (`components/NavLinks.tsx`) with

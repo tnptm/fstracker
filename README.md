@@ -7,12 +7,14 @@ you are doing against them in the history and stats views. Light and dark themes
 
 ## Features
 
-- **Accounts:** register, log in and log out. Sessions last 30 days and are extended on use.
+- **Accounts:** anonymous sign-up (a random username and a password, no email), log in and log out. Sessions last 30 days and are extended on use.
 - **Time tracking:** a start/stop timer, manual time entries, and comments on each entry.
 - **Day notes:** mark a whole day as day off, sick, vacation or other.
 - **Courses:** count the courses you completed each month.
 - **Goals and stats:** monthly hour goals, a pace indicator for the current month, and a 12-month chart and table.
 - **History:** browse and edit past entries.
+- **Privacy (GDPR):** a privacy policy page, acceptance when you sign up, a data export, editing of your details,
+  account deletion, and automatic deletion of long-unused accounts. No data is shared with third parties.
 
 ## Tech stack
 
@@ -145,6 +147,7 @@ Backend environment variables (set in `backend/.env` or the shell):
 | `DJANGO_TIME_ZONE` | `Europe/Helsinki` | Defines day and month boundaries for filters and stats |
 | `DJANGO_THROTTLE_REGISTER` | `5/hour` | Sign-up limit per IP |
 | `DJANGO_THROTTLE_REGISTER_GLOBAL` | `100/hour` | Sign-up limit for the whole site |
+| `DJANGO_INACTIVE_ACCOUNT_MONTHS` | `24` | Accounts unused this long are deleted by `enforce_retention` (`0` disables it) |
 | `DJANGO_NUM_PROXIES` | `0` | Number of trusted proxies appending to `X-Forwarded-For` |
 | `POSTGRES_HOST` | unset (SQLite) | Set to use PostgreSQL; also `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` |
 
@@ -159,12 +162,29 @@ current user.
 |---|---|
 | `auth/csrf/` (GET) | Sets the CSRF cookie |
 | `auth/register/`, `auth/login/`, `auth/refresh/`, `auth/logout/` | Session management |
-| `auth/me/` (GET) | Current user |
+| `auth/me/` | GET: current user. PATCH `{"email": ""}`: remove a legacy email. DELETE: erase the account (needs `password`) |
+| `auth/me/export/` (GET) | All of the user's data as JSON (GDPR access/portability) |
+| `auth/privacy/accept/` (POST) | Accept the current privacy policy version |
 | `entries/` | Time entries (CRUD); `entries/current/`, `entries/start/`, `entries/stop/` |
 | `daily-comments/` | Day notes (CRUD) |
 | `goals/YYYY-MM/`, `courses/YYYY-MM/` | Monthly goal and course count (PUT upserts) |
 | `stats/?year=YYYY` | Current month and 12-month totals, in seconds |
 | `health/` | Health check (no auth) |
+
+## Privacy and data protection
+
+fstracker is built to comply with the GDPR. Accounts are anonymous (a random username plus a password, no email or name). User data (hours and notes) is used only to run
+the app and is never shared with third parties.
+
+- Sign-up requires accepting the [privacy policy](frontend/app/(legal)/privacy/page.tsx) (`/privacy` in the app).
+- Users can download their data and delete their account from the Account page.
+- Accounts unused for 24 months are deleted. Schedule this daily:
+  `docker compose --env-file .env.prod -f compose.prod.yaml exec -T backend python manage.py enforce_retention`
+  (add `--dry-run` to preview).
+- Before going live, set a contact email in [frontend/lib/privacy.ts](frontend/lib/privacy.ts).
+
+The data inventory, retention rules, request handling and contributor rules are in
+[docs/DATA_HANDLING.md](docs/DATA_HANDLING.md).
 
 ## Testing
 

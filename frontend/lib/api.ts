@@ -89,6 +89,8 @@ export type User = {
   email: string;
   first_name: string;
   last_name: string;
+  /** Has the user accepted the current privacy policy version? */
+  privacy_accepted: boolean;
 };
 
 export async function login(username: string, password: string): Promise<User> {
@@ -106,10 +108,10 @@ export async function logout(): Promise<void> {
 }
 
 export type RegisterInput = {
-  username: string;
-  email: string;
+  // No username or email: the server creates a random username (anonymous accounts).
   password: string;
   password_confirm: string;
+  accept_privacy: boolean; // the privacy policy checkbox, must be true
   website: string; // honeypot, must stay empty
 };
 
@@ -121,4 +123,31 @@ export async function register(input: RegisterInput): Promise<User> {
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, data);
   return data as User;
+}
+
+// --- Account & privacy (GDPR rights) ---------------------------------------
+
+/** Removes an email stored from before sign-up became anonymous. */
+export function removeEmail(): Promise<User> {
+  return apiFetch<User>("/api/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify({ email: "" }),
+  });
+}
+
+/** Right to erasure: permanently deletes the account and all of its data. */
+export function deleteAccount(password: string): Promise<null> {
+  return apiFetch<null>("/api/auth/me", {
+    method: "DELETE",
+    body: JSON.stringify({ password }),
+  });
+}
+
+/** Right of access / portability: all stored personal data as JSON. */
+export function exportMyData(): Promise<unknown> {
+  return apiFetch("/api/auth/me/export");
+}
+
+export function acceptPrivacyPolicy(): Promise<User> {
+  return apiFetch<User>("/api/auth/privacy/accept", { method: "POST" });
 }
